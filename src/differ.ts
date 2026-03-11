@@ -119,6 +119,74 @@ function diffEndpointDetails(oldEp: Endpoint, newEp: Endpoint): FieldChange[] {
     });
   }
 
+  // Compare responses
+  const oldResponses = oldEp.responses ?? {};
+  const newResponses = newEp.responses ?? {};
+
+  for (const status of Object.keys(oldResponses)) {
+    if (!(status in newResponses)) {
+      changes.push({ path: `responses.${status}`, changeType: 'removed', breaking: true });
+    }
+  }
+  for (const status of Object.keys(newResponses)) {
+    if (!(status in oldResponses)) {
+      changes.push({ path: `responses.${status}`, changeType: 'added', breaking: false });
+    }
+  }
+
+  for (const status of Object.keys(oldResponses)) {
+    if (!(status in newResponses)) continue;
+    const oldContent = oldResponses[status]!.content ?? {};
+    const newContent = newResponses[status]!.content ?? {};
+
+    for (const mediaType of Object.keys(oldContent)) {
+      if (!(mediaType in newContent)) {
+        changes.push({ path: `responses.${status}.${mediaType}`, changeType: 'removed', breaking: true });
+        continue;
+      }
+      const oldSchema = oldContent[mediaType]?.schema;
+      const newSchema = newContent[mediaType]?.schema;
+      if (oldSchema && newSchema) {
+        changes.push(...diffSchemaObjects(oldSchema, newSchema, `responses.${status}.${mediaType}.schema`));
+      }
+    }
+    for (const mediaType of Object.keys(newContent)) {
+      if (!(mediaType in oldContent)) {
+        changes.push({ path: `responses.${status}.${mediaType}`, changeType: 'added', breaking: false });
+      }
+    }
+  }
+
+  // Compare requestBody
+  const oldBody = oldEp.requestBody;
+  const newBody = newEp.requestBody;
+
+  if (!oldBody && newBody) {
+    changes.push({ path: 'requestBody', changeType: 'added', breaking: newBody.required });
+  } else if (oldBody && !newBody) {
+    changes.push({ path: 'requestBody', changeType: 'removed', breaking: true });
+  } else if (oldBody && newBody) {
+    const oldContent = oldBody.content ?? {};
+    const newContent = newBody.content ?? {};
+
+    for (const mediaType of Object.keys(oldContent)) {
+      if (!(mediaType in newContent)) {
+        changes.push({ path: `requestBody.${mediaType}`, changeType: 'removed', breaking: true });
+        continue;
+      }
+      const oldSchema = oldContent[mediaType]?.schema;
+      const newSchema = newContent[mediaType]?.schema;
+      if (oldSchema && newSchema) {
+        changes.push(...diffSchemaObjects(oldSchema, newSchema, `requestBody.${mediaType}.schema`));
+      }
+    }
+    for (const mediaType of Object.keys(newContent)) {
+      if (!(mediaType in oldContent)) {
+        changes.push({ path: `requestBody.${mediaType}`, changeType: 'added', breaking: false });
+      }
+    }
+  }
+
   return changes;
 }
 
@@ -162,6 +230,33 @@ function diffSchemaObjects(
   prefix: string,
 ): FieldChange[] {
   const changes: FieldChange[] = [];
+
+  // $ref change
+  if (oldSchema.$ref !== newSchema.$ref) {
+    if (oldSchema.$ref && newSchema.$ref) {
+      changes.push({
+        path: prefix ? `${prefix}.$ref` : '$ref',
+        changeType: 'modified',
+        breaking: true,
+        oldValue: oldSchema.$ref,
+        newValue: newSchema.$ref,
+      });
+    } else if (!oldSchema.$ref && newSchema.$ref) {
+      changes.push({
+        path: prefix ? `${prefix}.$ref` : '$ref',
+        changeType: 'added',
+        breaking: true,
+        newValue: newSchema.$ref,
+      });
+    } else if (oldSchema.$ref && !newSchema.$ref) {
+      changes.push({
+        path: prefix ? `${prefix}.$ref` : '$ref',
+        changeType: 'removed',
+        breaking: true,
+        oldValue: oldSchema.$ref,
+      });
+    }
+  }
 
   // Type change
   if (oldSchema.type !== newSchema.type) {

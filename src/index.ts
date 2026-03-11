@@ -4,6 +4,7 @@ import { homedir } from 'os';
 import { join } from 'path';
 import { Registry } from './registry';
 import { SpecCache } from './spec-cache';
+import { SnapshotStore } from './snapshot-store';
 import { createProjectTools, addProjectSchema } from './tools/project';
 import {
   createCenterTools,
@@ -21,9 +22,10 @@ async function main() {
   await registry.load();
 
   const cache = new SpecCache();
-  const projectTools = createProjectTools(registry);
+  const snapshotStore = new SnapshotStore(BASE_DIR);
+  const projectTools = createProjectTools(registry, snapshotStore);
   const centerTools = createCenterTools(registry, cache);
-  const diffTools = createDiffTools(registry, cache);
+  const diffTools = createDiffTools(registry, cache, snapshotStore);
   const helpTool = createHelpTool();
 
   const server = new McpServer({

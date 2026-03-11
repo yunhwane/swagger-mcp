@@ -1,5 +1,8 @@
 import { z } from 'zod';
 import type { Registry } from '../registry';
+import type { SnapshotStore } from '../snapshot-store';
+import { loadSpec } from '../loader';
+import { normalize } from '../normalizer';
 
 export const addProjectSchema = z.object({
   projectId: z.string().describe('Unique project identifier'),
@@ -7,7 +10,7 @@ export const addProjectSchema = z.object({
   source: z.string().describe('URL to OpenAPI spec'),
 });
 
-export function createProjectTools(registry: Registry) {
+export function createProjectTools(registry: Registry, snapshotStore: SnapshotStore) {
   return {
     async addProject(args: z.infer<typeof addProjectSchema>) {
       const project = registry.addProject({ ...args, sourceType: 'url' });
@@ -17,6 +20,15 @@ export function createProjectTools(registry: Registry) {
       if (registry.listProjects().length === 1) {
         registry.setActiveProject(project.projectId);
         await registry.save();
+      }
+
+      // Save initial snapshot (best-effort)
+      try {
+        const { doc, raw } = await loadSpec(args.source);
+        const snap = normalize(doc);
+        await snapshotStore.save(project.projectId, snap, raw);
+      } catch {
+        // Snapshot save failure shouldn't block project registration
       }
 
       return {
