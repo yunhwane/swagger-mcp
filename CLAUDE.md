@@ -37,6 +37,17 @@ The server exposes 6 MCP tools organized in two groups:
 - Tool return values use MCP's `{ content: [{ type: 'text', text: JSON.stringify(...) }] }` format.
 - Zod schemas define tool input shapes; `.shape` is passed to `server.tool()` for MCP registration.
 
+## Development Workflow — TDD
+
+Always follow the Red-Green-Refactor cycle:
+
+1. **RED** — Write a failing test first (`tests/` mirrors `src/` structure)
+2. **GREEN** — Write the minimum implementation to make the test pass
+3. **REFACTOR** — Clean up while keeping tests green
+4. Run `npm run check && npm test` to verify before finishing
+
+Do NOT write implementation code before its corresponding test exists.
+
 ## Tech Details
 
 - ESM-only (`"type": "module"` in package.json)

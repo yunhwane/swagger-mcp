@@ -12,6 +12,7 @@ import {
   describeComponentSchema,
 } from './tools/center';
 import { createDiffTools, diffApisSchema } from './tools/diff';
+import { createHelpTool } from './tools/help';
 
 const BASE_DIR = join(homedir(), '.swagger-mcp');
 
@@ -23,11 +24,17 @@ async function main() {
   const projectTools = createProjectTools(registry);
   const centerTools = createCenterTools(registry, cache);
   const diffTools = createDiffTools(registry, cache);
+  const helpTool = createHelpTool();
 
   const server = new McpServer({
     name: 'swagger-mcp',
     version: '0.2.0',
   });
+
+  // Help tool
+  server.tool('help', 'Show available tools and recommended workflow', {}, () =>
+    helpTool.help(),
+  );
 
   // Project tools
   server.tool('add_project', 'Register a new OpenAPI service', addProjectSchema.shape, (args) =>

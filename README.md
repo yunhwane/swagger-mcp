@@ -49,7 +49,7 @@ Once connected, just ask your MCP client:
 
 > "Register the Petstore API from https://petstore3.swagger.io/api/v3/openapi.json and explore its endpoints."
 
-Or walk through the 4-step drill-down:
+Or walk through the drill-down workflow:
 
 ```
 1. add_project        →  Register "petstore" with the spec URL
@@ -65,19 +65,30 @@ Or walk through the 4-step drill-down:
 - "What endpoints are available for managing pets?"
 - "Describe the `GET /pet/{petId}` endpoint."
 - "What fields does the `Pet` schema have?"
+- "Compare the current spec against this new version URL."
 
 ## Features
 
-### Tools (6)
+- OpenAPI 3.0.x / 3.1.x support (JSON & YAML, URL or local file)
+- 4-step drill-down: services → APIs → endpoint detail → component schemas
+- Shallow `$ref` resolution — keeps responses concise while letting the LLM decide which schemas to explore
+- Spec diff between registered and new versions
+- LRU spec cache (max 20 entries, 5 min TTL)
+- Project registry persisted to `~/.swagger-mcp/registry.json`
+- Built-in `help` tool for discoverability
 
-| Tool | Description |
-|------|-------------|
-| `add_project` | Register a new OpenAPI project (URL) |
-| `list_projects` | List all registered projects |
-| `list_services` | List registered services with their API groups (tags) |
-| `list_apis` | List all API endpoints for a service |
-| `describe_api` | Get detailed info about a specific endpoint (parameters, request body, responses) |
-| `describe_component` | Look up component schemas by `$ref` paths |
+## Tools (8)
+
+| Tool | Description | Inputs |
+|------|-------------|--------|
+| `help` | Show available tools and recommended workflow | — |
+| `add_project` | Register a new OpenAPI project (URL) | `projectId`, `name`, `source` |
+| `list_projects` | List all registered projects | — |
+| `list_services` | List registered services with their API groups (tags) | — |
+| `list_apis` | List all API endpoints for a service | `serviceName` |
+| `describe_api` | Get detailed info about a specific endpoint (parameters, request body, responses) | `serviceName`, `path`, `method` |
+| `describe_component` | Look up component schemas by `$ref` paths | `serviceName`, `refs` |
+| `diff_apis` | Compare registered spec against a new source | `serviceName`, `newSource` |
 
 ### 4-Step Drill-Down Pattern
 
@@ -97,12 +108,9 @@ Example: "petstore" project pointing to https://petstore3.swagger.io/api/v3/open
 
 Parsed OpenAPI documents are cached in-memory (LRU, max 20 entries, 5-minute TTL) to avoid re-fetching on every query.
 
-## Supported Specs
+### Spec Diff
 
-- OpenAPI 3.0.x
-- OpenAPI 3.1.x
-- JSON and YAML formats
-- Local files and remote URLs
+`diff_apis` compares a registered service's current spec against a new source, reporting added, removed, and changed endpoints with detailed parameter/schema diffs.
 
 ## Architecture
 
@@ -115,75 +123,84 @@ Parsed OpenAPI documents are cached in-memory (LRU, max 20 entries, 5-minute TTL
 ┌──────────────────▼──────────────────────────┐
 │              swagger-mcp Server              │
 │                                              │
-│  ┌───────────────┐  ┌────────────────────┐   │
-│  │ Project Tools │  │   Center Tools     │   │
-│  │  (2 ops)      │  │   (4 ops)          │   │
-│  └───────┬───────┘  └────────┬───────────┘   │
-│          │                   │               │
-│  ┌───────▼───────┐  ┌───────▼───────────┐   │
-│  │   Registry    │  │    Spec Cache      │   │
-│  │ (~/.swagger-  │  │  (in-memory LRU)   │   │
-│  │  mcp/)        │  │                    │   │
-│  └───────────────┘  └───────┬───────────┘   │
-│                             │               │
-│                     ┌───────▼───────────┐   │
-│                     │  Loader + Normalizer│  │
-│                     │  (fetch, parse,    │   │
-│                     │   resolve $refs)   │   │
-│                     └────────────────────┘   │
+│  ┌────────────┐ ┌────────────┐ ┌─────────┐  │
+│  │  Project   │ │   Center   │ │  Diff   │  │
+│  │  Tools (2) │ │  Tools (4) │ │ Tool (1)│  │
+│  └─────┬──────┘ └─────┬──────┘ └────┬────┘  │
+│        │              │             │        │
+│  ┌─────▼──────┐ ┌─────▼─────────────▼────┐  │
+│  │  Registry  │ │      Spec Cache        │  │
+│  │ (~/.swagger│ │    (in-memory LRU)     │  │
+│  │  -mcp/)    │ │                        │  │
+│  └────────────┘ └─────────┬──────────────┘  │
+│                           │                  │
+│                 ┌─────────▼──────────────┐   │
+│                 │  Loader + Normalizer   │   │
+│                 │  (fetch, parse,        │   │
+│                 │   resolve $refs)       │   │
+│                 └────────────────────────┘   │
 └──────────────────────────────────────────────┘
 ```
 
 1. **Registry** — stores project metadata, persists to disk
 2. **Loader** — fetches OpenAPI specs from URLs or local files, parses JSON/YAML
 3. **Normalizer** — resolves `$ref` references recursively with circular ref detection
-4. **Spec Cache** — LRU in-memory cache for parsed OpenAPI documents
+4. **Differ** — computes structural diff between two normalized specs
+5. **Spec Cache** — LRU in-memory cache for parsed OpenAPI documents
 
 ## Tech Stack
 
 - **Runtime**: Node.js 20+
-- **Language**: TypeScript
+- **Language**: TypeScript (strict mode, `noUncheckedIndexedAccess`)
 - **MCP SDK**: `@modelcontextprotocol/sdk`
 - **Validation**: `zod`
-- **Build**: `tsup`
+- **Build**: `tsup` (ESM-only, target `node20`)
 - **Test**: `vitest`
 
 ## Development
 
 ```bash
-# Run in development mode
-npm run dev
-
-# Type check
-npm run check
-
-# Run tests
-npm test
-
-# Build for production
-npm run build
+npm run dev        # Run with tsx (dev mode)
+npm run build      # Build with tsup → dist/
+npm run check      # TypeScript type check
+npm test           # Run all tests (vitest)
 
 # Test with MCP Inspector
 npx @modelcontextprotocol/inspector node dist/index.js
 ```
 
+### TDD Workflow
+
+This project follows the Red-Green-Refactor cycle:
+
+1. **RED** — Write a failing test first (`tests/` mirrors `src/` structure)
+2. **GREEN** — Write the minimum implementation to pass the test
+3. **REFACTOR** — Clean up while keeping tests green
+
+Always run `npm run check && npm test` before finishing a change.
+
 ## Project Structure
 
 ```
 src/
-  index.ts            # MCP server entry point (tool registration)
-  registry.ts         # Project registry state management
-  loader.ts           # OpenAPI spec fetcher (URL/file, JSON/YAML)
-  normalizer.ts       # $ref resolution and spec normalization
-  spec-cache.ts       # In-memory LRU cache for parsed specs
-  types.ts            # TypeScript type definitions
-  tools/
-    project.ts        # add_project, list_projects
-    center.ts         # list_services, list_apis, describe_api, describe_component
-tests/
-  tools/              # Tool unit tests
-  fixtures/           # Test OpenAPI specs (petstore variants)
-  *.test.ts           # Unit tests for loader, normalizer, registry, spec-cache
-docs/
-  prompts-guide.md    # Prompts usage guide
+├── index.ts           # MCP server entry point (tool registration)
+├── registry.ts        # Project registry state management
+├── loader.ts          # OpenAPI spec fetcher (URL/file, JSON/YAML)
+├── normalizer.ts      # $ref resolution and spec normalization
+├── differ.ts          # Spec diff engine
+├── spec-cache.ts      # In-memory LRU cache for parsed specs
+├── types.ts           # TypeScript type definitions
+└── tools/
+    ├── project.ts     # add_project, list_projects
+    ├── center.ts      # list_services, list_apis, describe_api, describe_component
+    ├── diff.ts        # diff_apis
+    └── help.ts        # help
+tests/                 # Mirrors src/ structure (vitest)
+  ├── tools/           # Tool unit tests
+  ├── fixtures/        # Test OpenAPI specs (petstore variants)
+  └── *.test.ts        # Unit tests for loader, normalizer, registry, etc.
 ```
+
+## License
+
+MIT
