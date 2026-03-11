@@ -11,6 +11,7 @@ import {
   describeApiSchema,
   describeComponentSchema,
 } from './tools/center';
+import { createDiffTools, diffApisSchema } from './tools/diff';
 
 const BASE_DIR = join(homedir(), '.swagger-mcp');
 
@@ -21,6 +22,7 @@ async function main() {
   const cache = new SpecCache();
   const projectTools = createProjectTools(registry);
   const centerTools = createCenterTools(registry, cache);
+  const diffTools = createDiffTools(registry, cache);
 
   const server = new McpServer({
     name: 'swagger-mcp',
@@ -53,6 +55,14 @@ async function main() {
     'Look up component schemas by $ref paths',
     describeComponentSchema.shape,
     (args) => centerTools.describeComponent(args),
+  );
+
+  // Diff tool
+  server.tool(
+    'diff_apis',
+    'Compare current spec of a registered service against a new source',
+    diffApisSchema.shape,
+    (args) => diffTools.diffApis(args),
   );
 
   const transport = new StdioServerTransport();
