@@ -17,6 +17,10 @@ npm run build
 
 ### 2. Configure your MCP client
 
+Two transport modes are available: **STDIO** (default) and **Streamable HTTP**.
+
+#### Option A: STDIO (default)
+
 **Claude Desktop** — edit `claude_desktop_config.json`:
 
 ```json
@@ -42,6 +46,32 @@ npm run build
   }
 }
 ```
+
+#### Option B: Streamable HTTP
+
+Start the HTTP server separately, then point your client to the URL. This mode is ideal for development — `tsx watch` auto-restarts on code changes without requiring manual MCP reconnection.
+
+```bash
+# Start the server (dev mode with hot reload)
+npm run dev:http
+
+# Or production mode
+npm run build && npm run start:http
+```
+
+**Claude Code** — add `.mcp.json` in your project root:
+
+```json
+{
+  "mcpServers": {
+    "swagger-mcp": {
+      "url": "http://localhost:3000/mcp"
+    }
+  }
+}
+```
+
+The HTTP server listens on port 3000 by default (override with `PORT` env var).
 
 ### 3. Try it with the Petstore API
 
@@ -130,7 +160,8 @@ When a project is registered via `add_project`, the spec is automatically normal
 │                MCP Client                    │
 │         (Claude Desktop / Claude Code)       │
 └──────────────────┬──────────────────────────┘
-                   │ MCP Protocol (stdio)
+                   │ MCP Protocol
+                   │ (stdio or Streamable HTTP)
 ┌──────────────────▼──────────────────────────┐
 │              swagger-mcp Server              │
 │                                              │
@@ -172,9 +203,11 @@ When a project is registered via `add_project`, the spec is automatically normal
 ## Development
 
 ```bash
-npm run dev        # Run with tsx (dev mode)
+npm run dev        # Run STDIO mode with tsx
+npm run dev:http   # Run HTTP mode with tsx watch (auto-reload)
 npm run build      # Build with tsup → dist/
 npm run check      # TypeScript type check
+npm run start:http # Run HTTP mode in production
 npm test           # Run all tests (vitest)
 
 # Test with MCP Inspector
@@ -195,7 +228,10 @@ Always run `npm run check && npm test` before finishing a change.
 
 ```
 src/
-├── index.ts           # MCP server entry point (tool registration)
+├── index.ts           # STDIO entry point
+├── http.ts            # Streamable HTTP entry point
+├── http-handler.ts    # HTTP request handler (session management, DNS rebinding protection)
+├── server.ts          # Shared McpServer creation (tool registration)
 ├── registry.ts        # Project registry state management
 ├── loader.ts          # OpenAPI spec fetcher (URL/file, JSON/YAML)
 ├── normalizer.ts      # $ref resolution and spec normalization
