@@ -1,0 +1,33 @@
+{
+  "name": "swagger-mcp",
+  "version": "0.1.0",
+  "license": "MIT",
+  "description": "Project-aware MCP server for exploring Swagger/OpenAPI docs in natural language.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yunhwane/swagger-mcp.git"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "build": "tsup",
+    "check": "tsc",
+    "start": "node dist/index.js",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.27.1",
+    "yaml": "^2.0.0",
+    "zod": "^3.25.0 || ^4.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "tsup": "^8.5.1",
+    "tsx": "^4.0.0",
+    "typescript": "^5.0.0",
+    "vitest": "^2.0.0"
+  }
+}

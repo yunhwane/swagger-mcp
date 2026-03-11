@@ -1,0 +1,65 @@
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { homedir } from 'os';
+import { join } from 'path';
+import { Registry } from './registry';
+import { SpecCache } from './spec-cache';
+import { createProjectTools, addProjectSchema } from './tools/project';
+import {
+  createCenterTools,
+  listApisSchema,
+  describeApiSchema,
+  describeComponentSchema,
+} from './tools/center';
+
+const BASE_DIR = join(homedir(), '.swagger-mcp');
+
+async function main() {
+  const registry = new Registry(BASE_DIR);
+  await registry.load();
+
+  const cache = new SpecCache();
+  const projectTools = createProjectTools(registry);
+  const centerTools = createCenterTools(registry, cache);
+
+  const server = new McpServer({
+    name: 'swagger-mcp',
+    version: '0.2.0',
+  });
+
+  // Project tools
+  server.tool('add_project', 'Register a new OpenAPI service', addProjectSchema.shape, (args) =>
+    projectTools.addProject(args),
+  );
+  server.tool('list_projects', 'List all registered services', {}, () =>
+    projectTools.listProjects(),
+  );
+
+  // Center tools (4-step)
+  server.tool('list_services', 'List registered services with API groups', {}, () =>
+    centerTools.listServices(),
+  );
+  server.tool('list_apis', 'List APIs for a service (simplified)', listApisSchema.shape, (args) =>
+    centerTools.listApis(args),
+  );
+  server.tool(
+    'describe_api',
+    'Get detailed info about a specific API endpoint',
+    describeApiSchema.shape,
+    (args) => centerTools.describeApi(args),
+  );
+  server.tool(
+    'describe_component',
+    'Look up component schemas by $ref paths',
+    describeComponentSchema.shape,
+    (args) => centerTools.describeComponent(args),
+  );
+
+  const transport = new StdioServerTransport();
+  await server.connect(transport);
+}
+
+main().catch((err) => {
+  console.error('Fatal error:', err);
+  process.exit(1);
+});
