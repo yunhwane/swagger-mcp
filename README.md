@@ -72,7 +72,8 @@ Or walk through the drill-down workflow:
 - OpenAPI 3.0.x / 3.1.x support (JSON & YAML, URL or local file)
 - 4-step drill-down: services → APIs → endpoint detail → component schemas
 - Shallow `$ref` resolution — keeps responses concise while letting the LLM decide which schemas to explore
-- Spec diff between registered and new versions
+- Spec diff with breaking change detection (responses, requestBody, parameters, schemas)
+- Snapshot store — auto-saves normalized specs on registration and after diffs, enabling offline comparison (max 5 per project)
 - LRU spec cache (max 20 entries, 5 min TTL)
 - Project registry persisted to `~/.swagger-mcp/registry.json`
 - Built-in `help` tool for discoverability
@@ -88,7 +89,7 @@ Or walk through the drill-down workflow:
 | `list_apis` | List all API endpoints for a service | `serviceName` |
 | `describe_api` | Get detailed info about a specific endpoint (parameters, request body, responses) | `serviceName`, `path`, `method` |
 | `describe_component` | Look up component schemas by `$ref` paths | `serviceName`, `refs` |
-| `diff_apis` | Compare registered spec against a new source | `serviceName`, `newSource` |
+| `diff_apis` | Compare saved snapshot (or registered spec) against a new source, with breaking change detection | `serviceName`, `newSource` |
 
 ### 4-Step Drill-Down Pattern
 
@@ -108,9 +109,19 @@ Example: "petstore" project pointing to https://petstore3.swagger.io/api/v3/open
 
 Parsed OpenAPI documents are cached in-memory (LRU, max 20 entries, 5-minute TTL) to avoid re-fetching on every query.
 
+### Snapshot Store
+
+When a project is registered via `add_project`, the spec is automatically normalized and saved as a snapshot. Each call to `diff_apis` that detects changes also saves a new snapshot. Snapshots are stored in `~/.swagger-mcp/snapshots/<projectId>/` (max 5 per project, deduplicated by content hash).
+
 ### Spec Diff
 
-`diff_apis` compares a registered service's current spec against a new source, reporting added, removed, and changed endpoints with detailed parameter/schema diffs.
+`diff_apis` compares the latest saved snapshot against a new spec source. If no snapshot exists, it falls back to fetching from the registered URL. The diff engine detects:
+
+- Endpoint additions, removals, and modifications
+- Parameter changes (type, required, location)
+- Response status code and media type changes (with breaking change flags)
+- RequestBody additions, removals, and schema changes
+- Schema property and `$ref` changes
 
 ## Architecture
 
@@ -145,8 +156,9 @@ Parsed OpenAPI documents are cached in-memory (LRU, max 20 entries, 5-minute TTL
 1. **Registry** — stores project metadata, persists to disk
 2. **Loader** — fetches OpenAPI specs from URLs or local files, parses JSON/YAML
 3. **Normalizer** — resolves `$ref` references recursively with circular ref detection
-4. **Differ** — computes structural diff between two normalized specs
+4. **Differ** — computes structural diff between two normalized specs (endpoints, parameters, responses, requestBody, schemas)
 5. **Spec Cache** — LRU in-memory cache for parsed OpenAPI documents
+6. **Snapshot Store** — persists normalized specs to disk for reliable diff comparisons
 
 ## Tech Stack
 
@@ -187,7 +199,8 @@ src/
 ├── registry.ts        # Project registry state management
 ├── loader.ts          # OpenAPI spec fetcher (URL/file, JSON/YAML)
 ├── normalizer.ts      # $ref resolution and spec normalization
-├── differ.ts          # Spec diff engine
+├── differ.ts          # Spec diff engine (endpoints, responses, requestBody, schemas)
+├── snapshot-store.ts  # Persistent snapshot storage for diff comparisons
 ├── spec-cache.ts      # In-memory LRU cache for parsed specs
 ├── types.ts           # TypeScript type definitions
 └── tools/
