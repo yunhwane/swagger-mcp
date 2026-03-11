@@ -4,6 +4,18 @@ An MCP (Model Context Protocol) server that reads Swagger/OpenAPI specs and lets
 
 The core idea: register a project once, and the whole team can query it conversationally — no need to re-upload specs every time.
 
+## Supported Clients
+
+| Client | MCP Support | STDIO | Streamable HTTP |
+|--------|-------------|-------|-----------------|
+| Claude Desktop | O | O | O |
+| Claude Code | O | O | O |
+| Cursor | O | O | O |
+| Gemini (Google) | O | — | O |
+| ChatGPT (OpenAI) | X | — | — |
+
+> Streamable HTTP mode is recommended for clients that only support URL-based connections (e.g., Gemini).
+
 ## Quick Start
 
 ### 1. Install & Build
@@ -60,6 +72,18 @@ npm run build && npm run start:http
 ```
 
 **Claude Code** — add `.mcp.json` in your project root:
+
+```json
+{
+  "mcpServers": {
+    "swagger-mcp": {
+      "url": "http://localhost:3000/mcp"
+    }
+  }
+}
+```
+
+**Gemini CLI** — edit `~/.gemini/settings.json`:
 
 ```json
 {
@@ -158,10 +182,10 @@ When a project is registered via `add_project`, the spec is automatically normal
 ```
 ┌─────────────────────────────────────────────┐
 │                MCP Client                    │
-│         (Claude Desktop / Claude Code)       │
+│   (Claude Desktop / Code / Cursor / Gemini)  │
 └──────────────────┬──────────────────────────┘
                    │ MCP Protocol
-                   │ (stdio or Streamable HTTP)
+                   │ (STDIO or Streamable HTTP)
 ┌──────────────────▼──────────────────────────┐
 │              swagger-mcp Server              │
 │                                              │
