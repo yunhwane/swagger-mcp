@@ -13,25 +13,36 @@ function isHostAllowed(req: IncomingMessage): boolean {
   return ALLOWED_HOSTS.has(hostname);
 }
 
+function sendJsonError(res: ServerResponse, status: number, error: string): void {
+  res.writeHead(status, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify({ error }));
+}
+
+function getSessionTransport(
+  sessions: Map<string, StreamableHTTPServerTransport>,
+  sessionId: string | undefined,
+): StreamableHTTPServerTransport | null {
+  if (!sessionId) return null;
+  return sessions.get(sessionId) ?? null;
+}
+
 export function createHttpRequestHandler(): (
   req: IncomingMessage,
   res: ServerResponse,
 ) => void {
-  const sessions = new Map<string, { transport: StreamableHTTPServerTransport }>();
+  const sessions = new Map<string, StreamableHTTPServerTransport>();
 
   return async (req: IncomingMessage, res: ServerResponse) => {
     // DNS rebinding protection
     if (!isHostAllowed(req)) {
-      res.writeHead(403, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Forbidden: invalid Host header' }));
+      sendJsonError(res, 403, 'Forbidden: invalid Host header');
       return;
     }
 
     // Only handle /mcp path
     const url = new URL(req.url ?? '/', `http://${req.headers.host}`);
     if (url.pathname !== '/mcp') {
-      res.writeHead(404, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Not Found' }));
+      sendJsonError(res, 404, 'Not Found');
       return;
     }
 
@@ -51,7 +62,6 @@ export function createHttpRequestHandler(): (
         : body.method === 'initialize';
 
       if (isInit) {
-        // Create new transport + server for this session
         const transport = new StreamableHTTPServerTransport({
           sessionIdGenerator: () => randomUUID(),
         });
@@ -59,7 +69,6 @@ export function createHttpRequestHandler(): (
         const server = await createMcpServer();
         await server.connect(transport);
 
-        // Store session after connect (sessionId is set during handleRequest)
         transport.onclose = () => {
           if (transport.sessionId) {
             sessions.delete(transport.sessionId);
@@ -68,50 +77,43 @@ export function createHttpRequestHandler(): (
 
         await transport.handleRequest(req, res, body);
 
-        // Store session after handling (sessionId is now available)
         if (transport.sessionId) {
-          sessions.set(transport.sessionId, { transport });
+          sessions.set(transport.sessionId, transport);
         }
         return;
       }
 
       // Non-init request: look up existing session
-      if (!sessionId || !sessions.has(sessionId)) {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Bad Request: missing or invalid session' }));
+      const transport = getSessionTransport(sessions, sessionId);
+      if (!transport) {
+        sendJsonError(res, 400, 'Bad Request: missing or invalid session');
         return;
       }
-
-      const session = sessions.get(sessionId)!;
-      await session.transport.handleRequest(req, res, body);
+      await transport.handleRequest(req, res, body);
       return;
     }
 
     if (req.method === 'GET') {
-      // SSE stream for server-initiated messages
-      if (!sessionId || !sessions.has(sessionId)) {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Bad Request: missing or invalid session' }));
+      const transport = getSessionTransport(sessions, sessionId);
+      if (!transport) {
+        sendJsonError(res, 400, 'Bad Request: missing or invalid session');
         return;
       }
-      const session = sessions.get(sessionId)!;
-      await session.transport.handleRequest(req, res);
+      await transport.handleRequest(req, res);
       return;
     }
 
     if (req.method === 'DELETE') {
-      if (!sessionId || !sessions.has(sessionId)) {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Bad Request: missing or invalid session' }));
+      const transport = getSessionTransport(sessions, sessionId);
+      if (!transport) {
+        sendJsonError(res, 400, 'Bad Request: missing or invalid session');
         return;
       }
-      const session = sessions.get(sessionId)!;
-      await session.transport.handleRequest(req, res);
-      sessions.delete(sessionId);
+      await transport.handleRequest(req, res);
+      sessions.delete(sessionId!);
       return;
     }
 
-    res.writeHead(405, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ error: 'Method Not Allowed' }));
+    sendJsonError(res, 405, 'Method Not Allowed');
   };
 }

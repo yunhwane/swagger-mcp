@@ -25,6 +25,10 @@ export const describeComponentSchema = z.object({
   refs: z.array(z.string()).describe('List of $ref paths (e.g. #/components/schemas/Pet)'),
 });
 
+export const describeCommonTypesSchema = z.object({
+  serviceName: z.string().describe('Service name (projectId)'),
+});
+
 async function fetchSpec(
   registry: Registry,
   cache: SpecCache,
@@ -52,6 +56,14 @@ function jsonResult(data: unknown) {
   return {
     content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }],
   };
+}
+
+function extractFirstMediaSchema(
+  contentObj: Record<string, unknown> | undefined,
+): SchemaObject | undefined {
+  if (!contentObj || typeof contentObj !== 'object') return undefined;
+  const firstMedia = Object.values(contentObj as Record<string, Record<string, unknown>>)[0];
+  return firstMedia?.schema as SchemaObject | undefined;
 }
 
 export function createCenterTools(registry: Registry, cache: SpecCache) {
@@ -134,27 +146,20 @@ export function createCenterTools(registry: Registry, cache: SpecCache) {
       let requestBody: SchemaObject | undefined;
       if (operation.requestBody) {
         const rb = operation.requestBody as Record<string, unknown>;
-        const content = rb.content as Record<string, Record<string, unknown>> | undefined;
-        if (content) {
-          const firstMediaType = Object.values(content)[0];
-          if (firstMediaType?.schema) {
-            requestBody = resolveShallow(doc, firstMediaType.schema as SchemaObject);
-          }
+        const rawSchema = extractFirstMediaSchema(rb.content as Record<string, unknown> | undefined);
+        if (rawSchema) {
+          requestBody = resolveShallow(doc, rawSchema);
         }
       }
 
-      // Responses: extract schema from first success response's first media type
+      // Responses: extract schema from first response's first media type
       let responses: SchemaObject | undefined;
       if (operation.responses && typeof operation.responses === 'object') {
-        const resEntries = Object.entries(operation.responses as Record<string, Record<string, unknown>>);
-        // Find first response with content
-        for (const [, resObj] of resEntries) {
-          if (resObj.content && typeof resObj.content === 'object') {
-            const firstMedia = Object.values(resObj.content as Record<string, Record<string, unknown>>)[0];
-            if (firstMedia?.schema) {
-              responses = resolveShallow(doc, firstMedia.schema as SchemaObject);
-              break;
-            }
+        for (const resObj of Object.values(operation.responses as Record<string, Record<string, unknown>>)) {
+          const rawSchema = extractFirstMediaSchema(resObj.content as Record<string, unknown> | undefined);
+          if (rawSchema) {
+            responses = resolveShallow(doc, rawSchema);
+            break;
           }
         }
       }
@@ -178,6 +183,35 @@ export function createCenterTools(registry: Registry, cache: SpecCache) {
       }
 
       return jsonResult(result);
+    },
+
+    async describeCommonTypes(args: z.infer<typeof describeCommonTypesSchema>) {
+      const doc = await fetchSpec(registry, cache, args.serviceName);
+      if (!doc) return errorResult(`Service "${args.serviceName}" not found`);
+
+      // Extract common responses from components/responses
+      const responses: Record<string, { description: string; schema?: SchemaObject }> = {};
+      const componentResponses = doc.components?.responses as Record<string, Record<string, unknown>> | undefined;
+      if (componentResponses) {
+        for (const [name, resObj] of Object.entries(componentResponses)) {
+          const rawSchema = extractFirstMediaSchema(resObj.content as Record<string, unknown> | undefined);
+          responses[name] = {
+            description: (resObj.description as string) ?? '',
+            schema: rawSchema ? resolveShallow(doc, rawSchema) : undefined,
+          };
+        }
+      }
+
+      // Extract common schemas from components/schemas
+      const commonSchemas: Record<string, SchemaObject> = {};
+      const componentSchemas = doc.components?.schemas as Record<string, SchemaObject> | undefined;
+      if (componentSchemas) {
+        for (const [name, schema] of Object.entries(componentSchemas)) {
+          commonSchemas[name] = resolveShallow(doc, schema);
+        }
+      }
+
+      return jsonResult({ responses, schemas: commonSchemas });
     },
   };
 }

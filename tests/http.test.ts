@@ -135,6 +135,136 @@ describe('HTTP transport', () => {
     expect(delRes.status).toBe(200);
   });
 
+  it('returns tool list via tools/list after initialize', async () => {
+    const port = 39127;
+    server = await startServer(port);
+
+    // Step 1: Initialize to get session
+    const initRes = await fetch(`http://localhost:${port}/mcp`, {
+      method: 'POST',
+      headers: MCP_HEADERS,
+      body: INIT_BODY,
+    });
+    const sessionId = initRes.headers.get('mcp-session-id')!;
+    await initRes.text(); // consume body
+
+    // Step 2: Call tools/list
+    const listRes = await fetch(`http://localhost:${port}/mcp`, {
+      method: 'POST',
+      headers: { ...MCP_HEADERS, 'mcp-session-id': sessionId },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        method: 'tools/list',
+        id: 2,
+        params: {},
+      }),
+    });
+
+    expect(listRes.status).toBe(200);
+    const text = await listRes.text();
+    const dataLine = text.split('\n').find((line) => line.startsWith('data: '));
+    expect(dataLine).toBeTruthy();
+    const json = JSON.parse(dataLine!.replace('data: ', ''));
+    expect(json.result).toBeDefined();
+    expect(json.result.tools).toBeInstanceOf(Array);
+    // Should contain our registered tools
+    const toolNames = json.result.tools.map((t: { name: string }) => t.name);
+    expect(toolNames).toContain('add_project');
+    expect(toolNames).toContain('list_projects');
+    expect(toolNames).toContain('list_services');
+    expect(toolNames).toContain('list_apis');
+    expect(toolNames).toContain('describe_api');
+    expect(toolNames).toContain('describe_component');
+  });
+
+  it('executes list_projects tool via HTTP', async () => {
+    const port = 39128;
+    server = await startServer(port);
+
+    // Step 1: Initialize
+    const initRes = await fetch(`http://localhost:${port}/mcp`, {
+      method: 'POST',
+      headers: MCP_HEADERS,
+      body: INIT_BODY,
+    });
+    const sessionId = initRes.headers.get('mcp-session-id')!;
+    await initRes.text();
+
+    // Step 2: Call list_projects tool
+    const callRes = await fetch(`http://localhost:${port}/mcp`, {
+      method: 'POST',
+      headers: { ...MCP_HEADERS, 'mcp-session-id': sessionId },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        method: 'tools/call',
+        id: 3,
+        params: {
+          name: 'list_projects',
+          arguments: {},
+        },
+      }),
+    });
+
+    expect(callRes.status).toBe(200);
+    const text = await callRes.text();
+    const dataLine = text.split('\n').find((line) => line.startsWith('data: '));
+    expect(dataLine).toBeTruthy();
+    const json = JSON.parse(dataLine!.replace('data: ', ''));
+    expect(json.result).toBeDefined();
+    expect(json.result.content).toBeInstanceOf(Array);
+    expect(json.result.content[0].type).toBe('text');
+    // The response should be valid JSON text (array of projects)
+    const payload = JSON.parse(json.result.content[0].text);
+    expect(payload).toBeInstanceOf(Array);
+  });
+
+  it('rejects tool call without session with 400', async () => {
+    const port = 39129;
+    server = await startServer(port);
+
+    // Call tools/call without initializing (no session id)
+    const res = await fetch(`http://localhost:${port}/mcp`, {
+      method: 'POST',
+      headers: MCP_HEADERS,
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        method: 'tools/call',
+        id: 4,
+        params: {
+          name: 'list_projects',
+          arguments: {},
+        },
+      }),
+    });
+
+    expect(res.status).toBe(400);
+  });
+
+  it('rejects tool call with invalid session id with 400', async () => {
+    const port = 39130;
+    server = await startServer(port);
+
+    // Call tools/call with a fabricated session id
+    const res = await fetch(`http://localhost:${port}/mcp`, {
+      method: 'POST',
+      headers: {
+        ...MCP_HEADERS,
+        'mcp-session-id': 'invalid-session-id-12345',
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        method: 'tools/call',
+        id: 5,
+        params: {
+          name: 'list_projects',
+          arguments: {},
+        },
+      }),
+    });
+
+    expect(res.status).toBe(400);
+  });
+
   it('validates Host header for DNS rebinding protection', async () => {
     const port = 39126;
     server = await startServer(port);

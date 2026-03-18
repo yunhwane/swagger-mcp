@@ -175,6 +175,112 @@ describe('center tools', () => {
     });
   });
 
+  describe('describeCommonTypes', () => {
+    it('서비스의 components/responses에 정의된 공통 응답코드를 반환한다', async () => {
+      const specWithResponses = {
+        openapi: '3.0.3',
+        info: { title: 'Test API', version: '1.0.0' },
+        paths: {},
+        components: {
+          responses: {
+            NotFound: {
+              description: 'Resource not found',
+              content: {
+                'application/json': {
+                  schema: { $ref: '#/components/schemas/Error' },
+                },
+              },
+            },
+            Unauthorized: {
+              description: 'Authentication required',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      message: { type: 'string' },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          schemas: {
+            Error: {
+              type: 'object',
+              required: ['code', 'message'],
+              properties: {
+                code: { type: 'integer' },
+                message: { type: 'string' },
+              },
+            },
+            Pagination: {
+              type: 'object',
+              properties: {
+                page: { type: 'integer' },
+                totalPages: { type: 'integer' },
+              },
+            },
+          },
+        },
+      };
+      mockedLoadSpec.mockResolvedValue({
+        doc: specWithResponses,
+        raw: JSON.stringify(specWithResponses),
+      });
+      cache.invalidate('https://example.com/petstore.json');
+
+      const tools = createCenterTools(registry, cache);
+      const result = await tools.describeCommonTypes({ serviceName: 'petstore' });
+      const data = JSON.parse(result.content[0]!.text);
+
+      expect(data.responses).toBeDefined();
+      expect(data.responses.NotFound).toBeDefined();
+      expect(data.responses.NotFound.description).toBe('Resource not found');
+      expect(data.responses.Unauthorized).toBeDefined();
+      expect(data.responses.Unauthorized.description).toBe('Authentication required');
+    });
+
+    it('components/schemas에 정의된 공통 타입을 반환한다', async () => {
+      const tools = createCenterTools(registry, cache);
+      const result = await tools.describeCommonTypes({ serviceName: 'petstore' });
+      const data = JSON.parse(result.content[0]!.text);
+
+      expect(data.schemas).toBeDefined();
+      expect(data.schemas.Pet).toBeDefined();
+      expect(data.schemas.Pet.type).toBe('object');
+      expect(data.schemas.Pet.properties.id).toBeDefined();
+      expect(data.schemas.NewPet).toBeDefined();
+      expect(data.schemas.Error).toBeDefined();
+    });
+
+    it('존재하지 않는 서비스명이면 에러를 반환한다', async () => {
+      const tools = createCenterTools(registry, cache);
+      const result = await tools.describeCommonTypes({ serviceName: 'nonexistent' });
+      expect((result as { isError?: boolean }).isError).toBe(true);
+    });
+
+    it('responses와 schemas가 없는 빈 스펙이면 빈 객체를 반환한다', async () => {
+      const emptySpec = {
+        openapi: '3.0.3',
+        info: { title: 'Empty API', version: '1.0.0' },
+        paths: {},
+      };
+      mockedLoadSpec.mockResolvedValue({
+        doc: emptySpec,
+        raw: JSON.stringify(emptySpec),
+      });
+      cache.invalidate('https://example.com/petstore.json');
+
+      const tools = createCenterTools(registry, cache);
+      const result = await tools.describeCommonTypes({ serviceName: 'petstore' });
+      const data = JSON.parse(result.content[0]!.text);
+
+      expect(data.responses).toEqual({});
+      expect(data.schemas).toEqual({});
+    });
+  });
+
   describe('캐시 동작', () => {
     it('같은 서비스 연속 호출 시 loadSpec을 한 번만 호출한다', async () => {
       const freshCache = new SpecCache();

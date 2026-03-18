@@ -10,6 +10,7 @@ import {
   listApisSchema,
   describeApiSchema,
   describeComponentSchema,
+  describeCommonTypesSchema,
 } from './tools/center';
 import { createDiffTools, diffApisSchema } from './tools/diff';
 import { createHelpTool } from './tools/help';
@@ -63,6 +64,12 @@ export async function createMcpServer(): Promise<McpServer> {
     'Look up component schemas by $ref paths',
     describeComponentSchema.shape,
     (args) => centerTools.describeComponent(args),
+  );
+  server.tool(
+    'describe_common_types',
+    'Get common response schemas and shared types from components',
+    describeCommonTypesSchema.shape,
+    (args) => centerTools.describeCommonTypes(args),
   );
 
   // Diff tool
